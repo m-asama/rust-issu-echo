@@ -53,9 +53,8 @@ impl EchoOps {
         }
     }
     fn close(&mut self) {
-        unsafe {
-            libc::dlclose(self.handle);
-        }
+        let ret = unsafe { libc::dlclose(self.handle) };
+        eprintln!("dlclose = {}", ret);
     }
 }
 
@@ -93,6 +92,7 @@ fn main() {
                 let data = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
                 (echo_ops.suspend)(data.clone());
                 echo_ops.close();
+                std::thread::sleep(std::time::Duration::from_millis(1000));
                 echo_ops = EchoOps::open().unwrap();
                 (echo_ops.resume)(data);
             }

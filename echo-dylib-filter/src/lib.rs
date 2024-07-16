@@ -7,6 +7,13 @@ use std::os::fd::RawFd;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub enum Filter {
+    None,
+    Upper,
+    Lower,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct State {
     listener_raw_fd: RawFd,
@@ -16,6 +23,7 @@ pub struct State {
 #[derive(Serialize, Deserialize)]
 pub struct Session {
     client_raw_fd: RawFd,
+    filter: Option<Filter>,
 }
 
 enum ServerMsg {
@@ -39,6 +47,7 @@ static CTX: std::sync::Mutex<Option<Context>> = std::sync::Mutex::new(None);
 struct Client {
     rx: tokio::sync::mpsc::Receiver<ClientMsg>,
     server_tx: tokio::sync::mpsc::Sender<ServerMsg>,
+    filter: Filter,
 }
 
 impl Client {
@@ -49,6 +58,7 @@ impl Client {
         Self {
             rx: rx,
             server_tx: server_tx,
+            filter: Filter::None,
         }
     }
     async fn run(&mut self, mut stream: tokio::net::TcpStream) {
@@ -67,8 +77,34 @@ impl Client {
                             eprintln!("n == 0");
                             break;
                         }
-                        Ok(_) => {
-                            let _ = stream.write_all(&buf).await;
+                        Ok(n) => {
+                            if let Ok(s) = std::str::from_utf8(&buf[0..n]) {
+                                eprintln!("{}", s);
+                                if s.starts_with(":set filter none") {
+                                    self.filter = Filter::None;
+                                }
+                                if s.starts_with(":set filter upper") {
+                                    self.filter = Filter::Upper;
+                                }
+                                if s.starts_with(":set filter lower") {
+                                    self.filter = Filter::Lower;
+                                }
+                            } else {
+                                eprintln!("std::str::from_utf8 failed");
+                            }
+                            match self.filter {
+                                Filter::None => {
+                                    let _ = stream.write_all(&buf[0..n]).await;
+                                }
+                                Filter::Upper => {
+                                    let buf2 = buf[0..n].to_ascii_uppercase();
+                                    let _ = stream.write_all(&buf2);
+                                }
+                                Filter::Lower => {
+                                    let buf2 = buf[0..n].to_ascii_lowercase();
+                                    let _ = stream.write_all(&buf2);
+                                }
+                            }
                         }
                     }
                 }
@@ -85,6 +121,7 @@ impl Client {
                             let client_raw_fd = stream.as_raw_fd();
                             let _ = tx.send(Ok(Session {
                                 client_raw_fd: client_raw_fd,
+                                filter: Some(self.filter),
                             })).await;
                             std::mem::forget(stream);
                             break;
@@ -219,7 +256,7 @@ impl Server {
 
 #[no_mangle]
 pub fn start() {
-    eprintln!("start!");
+    eprintln!("start! filter");
     if let Some(ref mut _ctx) = *CTX.lock().unwrap() {
         eprintln!("start ctx exists?");
         return;
@@ -240,7 +277,7 @@ pub fn start() {
 
 #[no_mangle]
 pub fn resume(data: std::sync::Arc<std::sync::Mutex<String>>) {
-    eprintln!("resume!");
+    eprintln!("resume! filter");
     let state: State = match serde_json::from_str(data.lock().unwrap().as_ref()) {
         Ok(state) => state,
         Err(_) => {
@@ -286,7 +323,7 @@ pub fn resume(data: std::sync::Arc<std::sync::Mutex<String>>) {
 
 #[no_mangle]
 pub fn suspend(data: std::sync::Arc<std::sync::Mutex<String>>) {
-    eprintln!("suspend!");
+    eprintln!("suspend! filter");
     let mut join_handle = None;
     if let Some(ref mut ctx) = *CTX.lock().unwrap() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<State, String>>(1);
@@ -313,7 +350,7 @@ pub fn suspend(data: std::sync::Arc<std::sync::Mutex<String>>) {
 
 #[no_mangle]
 pub fn stop() {
-    eprintln!("stop!");
+    eprintln!("stop! filter");
     let mut join_handle = None;
     if let Some(ref mut ctx) = *CTX.lock().unwrap() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<(), String>>(1);
