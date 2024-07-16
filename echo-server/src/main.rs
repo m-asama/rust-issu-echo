@@ -10,8 +10,14 @@ struct EchoOps {
 }
 
 impl EchoOps {
-    fn open() -> Result<EchoOps, String> {
-        let filename = b"./libecho.so\0".as_ptr().cast();
+    fn open(i: usize) -> Result<EchoOps, String> {
+        let filename = if i == 1 {
+            b"./libecho1.so\0".as_ptr().cast()
+        } else if i == 2 {
+            b"./libecho2.so\0".as_ptr().cast()
+        } else {
+            b"./libecho.so\0".as_ptr().cast()
+        };
         let flag = libc::RTLD_LOCAL | libc::RTLD_LAZY;
         let sym_start = b"start\0".as_ptr().cast();
         let sym_resume = b"resume\0".as_ptr().cast();
@@ -59,11 +65,12 @@ impl EchoOps {
 }
 
 fn main() {
-    let mut echo_ops = EchoOps::open().unwrap();
+    let mut echo_ops = EchoOps::open(1).unwrap();
     (echo_ops.start)();
     let signals = [
         signal_hook::consts::signal::SIGINT,
         signal_hook::consts::signal::SIGUSR1,
+        signal_hook::consts::signal::SIGUSR2,
     ];
     let mut signals = signal_hook::iterator::Signals::new(&signals).unwrap();
     let sig_handle = signals.handle();
@@ -75,25 +82,18 @@ fn main() {
             }
             signal_hook::consts::signal::SIGUSR1 => {
                 eprintln!("SIGUSR1");
-                /*
-                let echo_ops_new = match EchoOps::open() {
-                    Ok(echo_ops) => echo_ops,
-                    Err(e) => {
-                        eprintln!("EchoOps::open failed: {}", e);
-                        continue;
-                    }
-                };
                 let data = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
                 (echo_ops.suspend)(data.clone());
                 echo_ops.close();
-                echo_ops = echo_ops_new;
+                echo_ops = EchoOps::open(1).unwrap();
                 (echo_ops.resume)(data);
-                */
+            }
+            signal_hook::consts::signal::SIGUSR2 => {
+                eprintln!("SIGUSR2");
                 let data = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
                 (echo_ops.suspend)(data.clone());
                 echo_ops.close();
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                echo_ops = EchoOps::open().unwrap();
+                echo_ops = EchoOps::open(2).unwrap();
                 (echo_ops.resume)(data);
             }
             _ => unreachable!(),

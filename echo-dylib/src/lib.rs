@@ -241,6 +241,10 @@ pub fn start() {
 #[no_mangle]
 pub fn resume(data: std::sync::Arc<std::sync::Mutex<String>>) {
     eprintln!("resume!");
+    if let Some(ref mut _ctx) = *CTX.lock().unwrap() {
+        eprintln!("start ctx exists?");
+        return;
+    }
     let state: State = match serde_json::from_str(data.lock().unwrap().as_ref()) {
         Ok(state) => state,
         Err(_) => {
@@ -308,6 +312,7 @@ pub fn suspend(data: std::sync::Arc<std::sync::Mutex<String>>) {
         let _ = join_handle.join();
         eprintln!("join_handle.join end");
     }
+    *CTX.lock().unwrap() = None;
     eprintln!("suspend exit");
 }
 
@@ -331,5 +336,6 @@ pub fn stop() {
         let _ = join_handle.join();
         eprintln!("join_handle.join end");
     }
+    *CTX.lock().unwrap() = None;
     eprintln!("stop exit");
 }
